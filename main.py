@@ -1,4 +1,4 @@
-from src.ingestion import ingest_path, convert_to_chunks
+from src.ingestion import ingest_path, convert_to_chunks, convert_py_to_chunks
 
 def main():
     with open("practice.txt", "r") as f:
@@ -16,4 +16,4 @@ if files is not None:
 for file_path in list(files)[:5]:
     print(file_path)
 
-print(convert_to_chunks(files, 2000)[:5])
+print(convert_py_to_chunks(files)[:5])

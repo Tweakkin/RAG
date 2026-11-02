@@ -1,5 +1,6 @@
 import os
 from typing import Dict, List
+import ast
 
 def ingest_path(path: str) -> Dict[str, str] | None:
     try:
@@ -51,4 +52,25 @@ def convert_to_chunks(files_content: Dict[str, str], max_chunk_size: int) -> Lis
                         "text": piece,
                     })
             counter += len(paragraph) + 2
+    return result
+
+def convert_py_to_chunks(files_content: Dict[str, str]) -> List[Dict[str, str | int]]:
+    result: List[Dict[str, str | int]] = []
+    for file_path, content in files_content.items():
+        if file_path.endswith(".py"):
+            splitted = content.splitlines(keepends=True)
+            tree = ast.parse(content)
+            tree_list = tree.body
+            for node in tree_list:
+                text = "".join(splitted[node.lineno - 1:node.end_lineno])
+                first_index = sum(len(line) for line in splitted[:node.lineno - 1])
+                end_index = first_index + len(text)
+                result.append({
+                    "file_path": file_path,
+                    "first_character_index": first_index,
+                    "last_character_index": end_index,
+                    "text": text
+                })
+        else:
+            continue
     return result

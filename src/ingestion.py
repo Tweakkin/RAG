@@ -2,6 +2,9 @@ import os
 from typing import Dict, List
 import ast
 
+# Walk through folders, reads files (.py, .md, .txt)
+# And returns their paths and original content
+# Report unreadable files
 def ingest_path(path: str) -> Dict[str, str] | None:
     try:
         if not os.path.isdir(path):
@@ -25,6 +28,8 @@ def ingest_path(path: str) -> Dict[str, str] | None:
 
     return files_saved
 
+# Split .md and .txt files into paragraphs if they fit and split
+# oversized paragraphs
 def convert_to_chunks(files_content: Dict[str, str], max_chunk_size: int = 2000) -> List[Dict[str, str | int]]:
     if not 1 <= max_chunk_size <= 2000:
         raise ValueError("Chunk size must be between 1 and 2000.")
@@ -57,6 +62,9 @@ def convert_to_chunks(files_content: Dict[str, str], max_chunk_size: int = 2000)
             continue
     return result
 
+
+# Splitting .py files, using Python AST to identify statements, functions...
+# Split oversized sections by char count
 def convert_py_to_chunks(files_content: Dict[str, str], max_chunk_size: int = 2000) -> List[Dict[str, str | int]]:
     if not 1 <= max_chunk_size <= 2000:
         raise ValueError("Chunk size must be between 1 and 2000.")

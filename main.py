@@ -1,6 +1,8 @@
 from src.ingestion import ingest_path
 from src.chunking import convert_py_to_chunks, convert_to_chunks
 from src.tokenizer import prepare_chunks, score_chunks, get_top_chunks, tokenize
+import json
+from pathlib import Path
 
 
 def main() -> int:
@@ -45,6 +47,19 @@ def main() -> int:
     # Prepare corpus statistics once so later questions can reuse them.
     try:
         chunks_tf, idf = prepare_chunks(all_chunks)
+        # Create the output folder if it doesn't exist.
+        Path("data/processed").mkdir(parents=True, exist_ok=True)
+
+        # Collect everything needed to search later.
+        index = {
+            "chunks": all_chunks,
+            "chunks_tf": chunks_tf,
+            "idf": idf,
+        }
+
+        # Save it to a JSON file.
+        with open("data/processed/index.json", "w", encoding="utf-8") as file:
+            json.dump(index, file, indent=2)
     except Exception as error:
         print(f"Could not prepare the corpus: {error}")
         return 1

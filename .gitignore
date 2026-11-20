@@ -6,3 +6,5 @@ __pycache__/
 *.pyc
 .venv/
 /practice.txt
+.mypy_cache/
+.pytest_cache/

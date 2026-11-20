@@ -1,95 +1,36 @@
+"""Read supported source files without changing their character offsets."""
+
 import os
-from typing import Dict, List
-import ast
+from pathlib import Path
 
-# Walk through folders, reads files (.py, .md, .txt)
-# And returns their paths and original content
-# Report unreadable files
-def ingest_path(path: str) -> Dict[str, str] | None:
+
+def read_source(path: Path) -> str:
+    """Decode UTF-8 source without translating line endings."""
+    return path.read_bytes().decode("utf-8")
+
+
+def corpus_files(root: Path) -> list[Path]:
+    """Find supported non-symlinked files in a deterministic order."""
+    if not root.is_dir():
+        raise FileNotFoundError(f"Corpus directory does not exist: {root}")
+
+    def raise_walk_error(error: OSError) -> None:
+        """Report a directory that could not be read."""
+        raise error
+
+    files: list[Path] = []
+    for folder, subfolders, names in os.walk(root, onerror=raise_walk_error):
+        subfolders[:] = [name for name in subfolders if name != ".git"]
+        for name in names:
+            path = Path(folder) / name
+            if path.suffix in {".py", ".md", ".txt"} and not path.is_symlink():
+                files.append(path)
+    return sorted(files)
+
+
+def source_name(path: Path, project_root: Path) -> str:
+    """Use project-relative, forward-slash paths where possible."""
     try:
-        if not os.path.isdir(path):
-            print(f"Not a valid directory: {path}")
-            return None
-        files_saved: Dict[str, str] = {}
-        for curr_folder, sub_folders, filenames in os.walk(path):
-            for filename in filenames:
-                try:
-                    if filename.endswith((".txt", ".py", ".md")):
-                        file_path = os.path.join(curr_folder, filename)
-                        with open(file_path, "r", encoding="utf-8", newline="") as f:
-                            content = f.read()
-                        files_saved[file_path] = content
-                except (OSError, UnicodeDecodeError) as e:
-                    print(f"Could not read {file_path}: {e}")
-                    continue
-    except Exception as e:
-        print(f"Error: {e}")
-        return None
-
-    return files_saved
-
-# Split .md and .txt files into paragraphs if they fit and split
-# oversized paragraphs
-def convert_to_chunks(files_content: Dict[str, str], max_chunk_size: int = 2000) -> List[Dict[str, str | int]]:
-    if not 1 <= max_chunk_size <= 2000:
-        raise ValueError("Chunk size must be between 1 and 2000.")
-    result: List[Dict[str, str | int]] = []
-    for file_path, content in files_content.items():
-        if file_path.endswith((".md", ".txt")):
-            counter: int = 0
-            paragraphs = content.split("\n\n")
-            for paragraph in paragraphs:
-                if paragraph == "":
-                    counter += 2
-                    continue
-                for num in range(0, len(paragraph), max_chunk_size):
-                    piece = paragraph[num: num+max_chunk_size]
-                    start = counter + num
-                    end = start + len(piece)
-                    last = result[-1] if result else None
-                    if (last is not None and last["file_path"] == file_path and end - last["first_character_index"] <= max_chunk_size):
-                        last["last_character_index"] = end
-                        last["text"] = content[last["first_character_index"]:end]
-                    else:
-                        result.append({
-                            "file_path": file_path,
-                            "first_character_index": start,
-                            "last_character_index": end,
-                            "text": piece,
-                        })
-                counter += len(paragraph) + 2
-        else:
-            continue
-    return result
-
-
-# Splitting .py files, using Python AST to identify statements, functions...
-# Split oversized sections by char count
-def convert_py_to_chunks(files_content: Dict[str, str], max_chunk_size: int = 2000) -> List[Dict[str, str | int]]:
-    if not 1 <= max_chunk_size <= 2000:
-        raise ValueError("Chunk size must be between 1 and 2000.")
-    result: List[Dict[str, str | int]] = []
-    for file_path, content in files_content.items():
-        if file_path.endswith(".py"):
-            try:
-                tree = ast.parse(content)
-            except SyntaxError as e:
-                print(f"Could not parse {file_path}: {e}")
-                continue
-            splitted = content.splitlines(keepends=True)
-            tree_list = tree.body
-            for node in tree_list:
-                text = "".join(splitted[node.lineno - 1:node.end_lineno])
-                first_index = sum(len(line) for line in splitted[:node.lineno - 1])
-                for num in range(0, len(text), max_chunk_size):
-                    piece = text[num:num + max_chunk_size]
-                    start = first_index + num
-                    result.append({
-                        "file_path": file_path,
-                        "first_character_index": start,
-                        "last_character_index": start + len(piece),
-                        "text": piece
-                    })
-        else:
-            continue
-    return result
+        return path.resolve().relative_to(project_root.resolve()).as_posix()
+    except ValueError:
+        return path.resolve().as_posix()

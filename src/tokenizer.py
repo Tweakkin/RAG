@@ -1,30 +1,101 @@
 import math
+import re
+
+# These common question words keep 20% of their normal score.
+LOW_WEIGHT_WORDS = {
+    "what", "which", "how", "is", "are",
+    "a", "an", "the", "of", "in", "to",
+}
 
 # Takes a chunk's text and returns a list of tokens
 def tokenize(text: str) -> list[str]:
-    """Lowercase text and retain identifiers plus their underscore parts."""
-    cleaned = ""
+    """Keep complete identifiers and add their individual words."""
 
-    for character in text.lower():
-        # Keep letters, Numbers, underscores
+    # Keep letters, numbers, and underscores.
+    # Preserve capitals so we can detect word boundaries.
+    cleaned = ""
+    for character in text:
         if character.isalnum() or character == "_":
             cleaned += character
         else:
             cleaned += " "
 
-    words = cleaned.split()
+    # Store the resulting tokens.
     tokens: list[str] = []
 
-    for word in words:
-        if not word.strip("_"): # Ignore empty strings
+    # Process each word separately.
+    for word in cleaned.split():
+
+        # Skip words containing only underscores.
+        if not word.strip("_"):
             continue
 
-        tokens.append(word)
+        # Keep the complete identifier in lowercase.
+        tokens.append(word.lower())
 
+        # Separate an acronym from the next word.
+        # "HTTPServer" -> "HTTP Server"
+        separated = re.sub(
+            r"([A-Z]+)([A-Z][a-z])",
+            r"\1 \2",
+            word,
+        )
+
+        # Separate lowercase letters or digits from a following capital.
+        # "BatchedExperts" -> "Batched Experts"
+        separated = re.sub(
+            r"([a-z0-9])([A-Z])",
+            r"\1 \2",
+            separated,
+        )
+
+        # Split underscores too, then lowercase all parts.
+        parts = separated.replace("_", " ").lower().split()
+
+        # Add the parts without duplicating an unchanged word.
+        if parts != [word.lower()]:
+            tokens.extend(parts)
+
+    return tokens
+
+def tokenize_question(text: str) -> list[str]:
+    """Keep original words and selectively add identifier parts."""
+
+    # Remove punctuation while preserving capitals and underscores.
+    cleaned = ""
+    for character in text:
+        if character.isalnum() or character == "_":
+            cleaned += character
+        else:
+            cleaned += " "
+
+    tokens: list[str] = []
+
+    for word in cleaned.split():
+        # Ignore words containing only underscores.
+        if not word.strip("_"):
+            continue
+
+        # Always keep the complete word.
+        base_tokens = [word.lower()]
+
+        # Keep the old underscore-splitting behavior.
         if "_" in word:
-            for part in word.split("_"):
-                if part: # Keep non-empty
-                    tokens.append(part)
+            for part in word.lower().split("_"):
+                if part:
+                    base_tokens.append(part)
+
+        tokens.extend(base_tokens)
+
+        # Get extra parts from the existing regex tokenizer.
+        extra_parts = [
+            part for part in tokenize(word)
+            if part not in base_tokens
+        ]
+
+        # Add them only if EVERY extra part has at least 3 characters.
+        if extra_parts and all(len(part) >= 3 for part in extra_parts):
+            tokens.extend(extra_parts)
 
     return tokens
 
@@ -124,9 +195,10 @@ def score_chunks(
         One score per chunk, in the same order as the input chunks.
         An empty question gives zero scores; no chunks gives an empty list.
         Scores sum logarithmic chunk TF times smoothed IDF for unique query tokens.
+        Common question words contribute 20% of their normal value.
     """
-    # Use the same tokenizer for the question.
-    question_tokens = set(tokenize(question))
+    # Expand question identifiers selectively to avoid noisy short parts.
+    question_tokens = set(tokenize_question(question))
 
     # Score every chunk using only the words from the question.
     chunk_scores: list[float] = []
@@ -134,10 +206,16 @@ def score_chunks(
         chunk_score = 0.0
         for question_token in question_tokens:
             # A missing word contributes zero to this chunk's score.
-            word_count = chunk_term_frequencies.get(question_token, 0)
+            raw_tf = chunk_term_frequencies.get(question_token, 0)
             word_idf = inverse_document_frequencies.get(question_token, 0.0)
-            tf = 1 + math.log(word_count) if word_count > 0 else 0.0
-            chunk_score += tf * word_idf
+            tf = 1 + math.log(raw_tf) if raw_tf > 0 else 0.0
+            contribution = tf * word_idf
+
+            # Reduce the influence of common question words.
+            if question_token in LOW_WEIGHT_WORDS:
+                contribution *= 0.2
+
+            chunk_score += contribution
         chunk_scores.append(chunk_score)
 
     return chunk_scores
